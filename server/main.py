@@ -2,6 +2,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 from pydantic import BaseModel
+from datetime import datetime, timedelta
+import uuid
 from mock_data import inventory_items, orders, demand_forecasts, backlog_items, spending_summary, monthly_spending, category_spending, recent_transactions, purchase_orders
 
 app = FastAPI(title="Factory Inventory Management System")
@@ -119,6 +121,30 @@ class CreatePurchaseOrderRequest(BaseModel):
     unit_cost: float
     expected_delivery_date: str
     notes: Optional[str] = None
+
+class RestockingRecommendation(BaseModel):
+    item_sku: str
+    item_name: str
+    category: str
+    current_demand: int
+    forecasted_demand: int
+    trend: str
+    quantity_on_hand: int
+    reorder_point: int
+    unit_cost: float
+    recommended_quantity: int
+    total_cost: float
+    priority_score: float
+
+class RestockingOrderItem(BaseModel):
+    item_sku: str
+    item_name: str
+    quantity: int
+    unit_cost: float
+
+class CreateRestockingOrderRequest(BaseModel):
+    items: List[RestockingOrderItem]
+    total_budget: float
 
 # API endpoints
 @app.get("/")
@@ -303,6 +329,190 @@ def get_monthly_trends():
     result = list(months.values())
     result.sort(key=lambda x: x['month'])
     return result
+
+# In-memory store for submitted restocking orders
+submitted_orders = []
+
+@app.get("/api/restocking/recommendations", response_model=List[RestockingRecommendation])
+def get_restocking_recommendations(budget: float = 50000):
+    """Get restocking recommendations using a combined score of demand trends and stock criticality.
+    Includes both demand-forecast-matched items and inventory items near/below reorder point."""
+    recommendations = []
+    seen_skus = set()
+
+    # Aggregate inventory across warehouses by SKU
+    inv_by_sku = {}
+    for item in inventory_items:
+        sku = item['sku']
+        if sku not in inv_by_sku:
+            inv_by_sku[sku] = {**item}
+        else:
+            existing = inv_by_sku[sku]
+            existing['quantity_on_hand'] = existing['quantity_on_hand'] + item['quantity_on_hand']
+            existing['reorder_point'] = existing['reorder_point'] + item['reorder_point']
+
+    # Build demand forecast lookup by SKU
+    demand_by_sku = {f['item_sku']: f for f in demand_forecasts}
+
+    def calc_stock_score(qty_on_hand, reorder_pt):
+        """Score 0-3 based on how depleted stock is relative to reorder point."""
+        if reorder_pt <= 0:
+            return 1.0
+        ratio = qty_on_hand / reorder_pt
+        if ratio <= 0.5:
+            return 3.0
+        elif ratio <= 1.0:
+            return 2.0
+        elif ratio <= 1.5:
+            return 1.0
+        else:
+            return 0.5
+
+    trend_scores = {'increasing': 3, 'stable': 2, 'decreasing': 1}
+
+    # Pass 1: Items with demand forecast data (get both trend + stock scores)
+    for forecast in demand_forecasts:
+        sku = forecast['item_sku']
+        inv = inv_by_sku.get(sku)
+
+        qty_on_hand = inv['quantity_on_hand'] if inv else 0
+        reorder_pt = inv['reorder_point'] if inv else 50
+        unit_cost = inv['unit_cost'] if inv else 25.0
+        category = inv['category'] if inv else 'General'
+
+        trend_score = trend_scores.get(forecast['trend'], 1)
+        stock_score = calc_stock_score(qty_on_hand, reorder_pt)
+        priority_score = round((trend_score * 0.4) + (stock_score * 0.6), 2)
+
+        demand_gap = max(0, forecast['forecasted_demand'] - qty_on_hand)
+        reorder_gap = max(0, reorder_pt - qty_on_hand + reorder_pt)
+        recommended_qty = max(demand_gap, reorder_gap, 10)
+        total_cost = round(recommended_qty * unit_cost, 2)
+
+        recommendations.append({
+            'item_sku': sku,
+            'item_name': forecast['item_name'],
+            'category': category,
+            'current_demand': forecast['current_demand'],
+            'forecasted_demand': forecast['forecasted_demand'],
+            'trend': forecast['trend'],
+            'quantity_on_hand': qty_on_hand,
+            'reorder_point': reorder_pt,
+            'unit_cost': unit_cost,
+            'recommended_quantity': recommended_qty,
+            'total_cost': total_cost,
+            'priority_score': priority_score,
+        })
+        seen_skus.add(sku)
+
+    # Pass 2: Inventory items without forecasts but near/below reorder point
+    for sku, inv in inv_by_sku.items():
+        if sku in seen_skus:
+            continue
+        qty_on_hand = inv['quantity_on_hand']
+        reorder_pt = inv['reorder_point']
+        stock_score = calc_stock_score(qty_on_hand, reorder_pt)
+
+        # Only include if stock is at or below 1.5x reorder point
+        if stock_score < 1.0:
+            continue
+
+        # No demand forecast: use stable trend as baseline
+        trend_score = trend_scores['stable']
+        priority_score = round((trend_score * 0.4) + (stock_score * 0.6), 2)
+
+        reorder_gap = max(0, reorder_pt * 2 - qty_on_hand)
+        recommended_qty = max(reorder_gap, 10)
+        unit_cost = inv['unit_cost']
+        total_cost = round(recommended_qty * unit_cost, 2)
+
+        recommendations.append({
+            'item_sku': sku,
+            'item_name': inv['name'],
+            'category': inv['category'],
+            'current_demand': 0,
+            'forecasted_demand': 0,
+            'trend': 'stable',
+            'quantity_on_hand': qty_on_hand,
+            'reorder_point': reorder_pt,
+            'unit_cost': unit_cost,
+            'recommended_quantity': recommended_qty,
+            'total_cost': total_cost,
+            'priority_score': priority_score,
+        })
+        seen_skus.add(sku)
+
+    # Sort by priority score descending
+    recommendations.sort(key=lambda x: x['priority_score'], reverse=True)
+
+    # Filter to fit within budget
+    result = []
+    remaining = budget
+    for rec in recommendations:
+        if rec['total_cost'] <= remaining:
+            result.append(rec)
+            remaining -= rec['total_cost']
+        else:
+            affordable_qty = int(remaining // rec['unit_cost'])
+            if affordable_qty > 0:
+                rec['recommended_quantity'] = affordable_qty
+                rec['total_cost'] = round(affordable_qty * rec['unit_cost'], 2)
+                result.append(rec)
+                remaining -= rec['total_cost']
+
+    return result
+
+
+@app.post("/api/restocking/orders")
+def create_restocking_order(request: CreateRestockingOrderRequest):
+    """Submit a restocking order. Creates a new order visible in the orders list."""
+    order_id = str(uuid.uuid4())
+    order_number = f"RST-2025-{len(submitted_orders) + 1:04d}"
+    now = datetime.now()
+    # Lead time: 7-14 days depending on order size
+    lead_days = 7 if request.total_budget < 50000 else 14
+    expected_delivery = (now + timedelta(days=lead_days)).strftime('%Y-%m-%dT%H:%M:%S')
+
+    order_items = [
+        {
+            'sku': item.item_sku,
+            'name': item.item_name,
+            'quantity': item.quantity,
+            'unit_price': item.unit_cost
+        }
+        for item in request.items
+    ]
+
+    total_value = round(sum(item.quantity * item.unit_cost for item in request.items), 2)
+
+    new_order = {
+        'id': order_id,
+        'order_number': order_number,
+        'customer': 'Internal Restocking',
+        'items': order_items,
+        'status': 'Processing',
+        'warehouse': 'San Francisco',
+        'category': request.items[0].item_sku.split('-')[0] if request.items else 'General',
+        'order_date': now.strftime('%Y-%m-%dT%H:%M:%S'),
+        'expected_delivery': expected_delivery,
+        'total_value': total_value,
+        'actual_delivery': None,
+        'is_restocking': True,
+        'lead_time_days': lead_days
+    }
+
+    # Add to both submitted_orders tracking list and main orders list
+    submitted_orders.append(new_order)
+    orders.append(new_order)
+
+    return new_order
+
+
+@app.get("/api/restocking/submitted")
+def get_submitted_orders():
+    """Get all submitted restocking orders with lead time info."""
+    return submitted_orders
+
 
 if __name__ == "__main__":
     import uvicorn

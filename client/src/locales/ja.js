@@ -7,7 +7,8 @@ export default {
     finance: '財務',
     demandForecast: '需要予測',
     companyName: '触媒コンポーネンツ',
-    subtitle: '在庫管理システム'
+    subtitle: '在庫管理システム',
+    restocking: '補充'
   },
 
   // Dashboard
@@ -360,6 +361,45 @@ export default {
     'USB-C PD 100W Power Supply': 'USB-C PD 100W電源',
     'Battery Backup Power Supply': 'バッテリバックアップ電源',
     'Adjustable Bench Power Supply': '可変ベンチ電源'
+  },
+
+  // Restocking
+  restocking: {
+    title: '補充',
+    description: '予算を設定し、需要動向と在庫レベルに基づくスマートな補充提案を取得します。',
+    budget: '利用可能予算',
+    recommendations: '推奨品目',
+    noRecommendations: '現在の予算内に収まる品目はありません。',
+    table: {
+      sku: 'SKU',
+      item: '品目',
+      category: 'カテゴリ',
+      trend: 'トレンド',
+      stock: '在庫数',
+      reorderPoint: '再注文点',
+      quantity: '注文数量',
+      unitCost: '単価',
+      totalCost: '合計コスト',
+      priority: '優先度'
+    },
+    summary: {
+      selectedItems: '選択品目',
+      totalCost: '合計コスト',
+      remainingBudget: '残り予算'
+    },
+    placeOrder: '注文する',
+    orderSuccess: '補充注文が正常に送信されました！',
+    orderError: '補充注文の送信に失敗しました。',
+    leadTime: '推定納期',
+    days: '日',
+    submittedOrders: '送信済み注文',
+    noSubmittedOrders: 'まだ補充注文はありません。',
+    orderNumber: '注文番号',
+    orderDate: '送信日',
+    expectedDelivery: '予定納品日',
+    totalValue: '合計金額',
+    status: 'ステータス',
+    itemsCount: '{count}品目'
   },
 
   // Customer Names

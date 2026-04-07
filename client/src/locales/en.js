@@ -7,7 +7,8 @@ export default {
     finance: 'Finance',
     demandForecast: 'Demand Forecast',
     companyName: 'Catalyst Components',
-    subtitle: 'Inventory Management System'
+    subtitle: 'Inventory Management System',
+    restocking: 'Restocking'
   },
 
   // Dashboard
@@ -309,6 +310,45 @@ export default {
     english: 'English',
     japanese: 'Japanese',
     selectLanguage: 'Select Language'
+  },
+
+  // Restocking
+  restocking: {
+    title: 'Restocking',
+    description: 'Set your budget and get smart restocking recommendations based on demand trends and stock levels.',
+    budget: 'Available Budget',
+    recommendations: 'Recommendations',
+    noRecommendations: 'No items fit within the current budget.',
+    table: {
+      sku: 'SKU',
+      item: 'Item',
+      category: 'Category',
+      trend: 'Trend',
+      stock: 'Stock',
+      reorderPoint: 'Reorder Pt',
+      quantity: 'Qty to Order',
+      unitCost: 'Unit Cost',
+      totalCost: 'Total Cost',
+      priority: 'Priority'
+    },
+    summary: {
+      selectedItems: 'Selected Items',
+      totalCost: 'Total Cost',
+      remainingBudget: 'Remaining Budget'
+    },
+    placeOrder: 'Place Order',
+    orderSuccess: 'Restocking order submitted successfully!',
+    orderError: 'Failed to submit restocking order.',
+    leadTime: 'Est. Lead Time',
+    days: 'days',
+    submittedOrders: 'Submitted Orders',
+    noSubmittedOrders: 'No restocking orders submitted yet.',
+    orderNumber: 'Order #',
+    orderDate: 'Submitted',
+    expectedDelivery: 'Expected Delivery',
+    totalValue: 'Total Value',
+    status: 'Status',
+    itemsCount: '{count} items'
   },
 
   // Common
